@@ -1,0 +1,8 @@
+arXiv*
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+bmssp_solver
+*.o
+.DS_Store

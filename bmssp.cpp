@@ -1,82 +1,16 @@
+#include "bmssp.h"
+#include "block_list.h"
 #include <algorithm>
-#include <chrono>
 #include <cmath>
-#include <iostream>
 #include <limits>
-#include <queue>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
+
 using namespace std;
 
-struct State {
-    int node_id;
-    double cost;
-
-    bool operator>(const State& other) const {
-        if (cost != other.cost)
-            return cost > other.cost;
-        return node_id > other.node_id;
-    }
-};
-
-struct Edge {
-    int to;
-    double weight;
-};
-
-struct BlockList {
-    int M;
-    double upper_bound;
-    priority_queue<State, vector<State>, greater<State>> pq;
-    unordered_map<int, double> dists; // Hasking
-
-    BlockList(int m_val, double b_val) : M(m_val), upper_bound(b_val) {}
-
-    void insert(int u, double d) {
-        if (d < upper_bound && (dists.find(u) == dists.end() || d < dists[u])) {
-            dists[u] = d;
-            pq.push({u, d});
-        }
-    }
-
-    void batch_prepend(const vector<pair<int, double>>& elements) {
-        for (auto& p : elements)
-            insert(p.first, p.second);
-    }
-
-    struct PullResult {
-        vector<int> frontier;
-        double bound;
-    };
-
-    PullResult pull() {
-        vector<int> frontier;
-        while (!pq.empty() && frontier.size() < M) {
-            State top = pq.top();
-            pq.pop();
-            if (top.cost > dists[top.node_id])
-                continue;
-            frontier.push_back(top.node_id);
-            dists.erase(top.node_id);
-        }
-        double next_b = pq.empty() ? upper_bound : pq.top().cost;
-        return {frontier, next_b};
-    }
-
-    bool is_empty() {
-        while (!pq.empty() && (dists.find(pq.top().node_id) == dists.end() ||
-                               pq.top().cost > dists[pq.top().node_id])) {
-            pq.pop();
-        }
-        return pq.empty();
-    }
-};
-
-pair<vector<int>, vector<int>> find_pivots(double bound,
-                                           const vector<int>& frontier, int k,
-                                           const vector<vector<Edge>>& adj,
-                                           vector<double>& min_costs) {
+static pair<vector<int>, vector<int>>
+find_pivots(double bound, const vector<int>& frontier, int k,
+            const vector<vector<Edge>>& adj, vector<double>& min_costs) {
     vector<int> all_layers = frontier;
     vector<int> last_layer = frontier;
     unordered_map<int, int> bp_map;
@@ -117,9 +51,9 @@ pair<vector<int>, vector<int>> find_pivots(double bound,
     return {vector<int>(pivots.begin(), pivots.end()), all_layers};
 }
 
-pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
-                                     const vector<vector<Edge>>& adj,
-                                     vector<double>& min_costs) {
+static pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
+                                            const vector<vector<Edge>>& adj,
+                                            vector<double>& min_costs) {
     priority_queue<State, vector<State>, greater<State>> pq;
     pq.push({node_id, min_costs[node_id]});
     vector<int> u_init;
@@ -152,10 +86,9 @@ pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
     return {max_cost, filtered_u};
 }
 
-pair<double, vector<int>> bmssp_bounded(int l, double B,
-                                        const vector<int>& frontier, int k,
-                                        int t, const vector<vector<Edge>>& adj,
-                                        vector<double>& min_costs) {
+static pair<double, vector<int>>
+bmssp_bounded(int l, double B, const vector<int>& frontier, int k, int t,
+              const vector<vector<Edge>>& adj, vector<double>& min_costs) {
     if (l == 0)
         return base_bmssp(B, frontier[0], k, adj, min_costs);
 
@@ -213,41 +146,4 @@ vector<double> solve_sssp(int n, const vector<vector<Edge>>& adj, int start) {
     bmssp_bounded(l, numeric_limits<double>::infinity(), {start}, k, t, adj,
                   min_costs);
     return min_costs;
-}
-
-int main() {
-    int n, m, source;
-    cin >> n >> m;
-
-    vector<vector<Edge>> adj(n);
-    for (int i = 0; i < m; ++i) {
-        int u, v;
-        double w;
-        cin >> u >> v >> w;
-        if (u < n && v < n) {
-            adj[u].push_back({v, w});
-        }
-    }
-
-    cin >> source;
-
-    auto start_time = chrono::high_resolution_clock::now();
-    vector<double> results = solve_sssp(n, adj, source);
-    auto end_time = chrono::high_resolution_clock::now();
-
-    auto duration =
-        chrono::duration_cast<chrono::microseconds>(end_time - start_time);
-    cout << "BMSSP Time: " << duration.count() / 1000.0 << " ms" << endl;
-    cout << "--------------------" << endl;
-
-    for (int i = 0; i < n; ++i) {
-        cout << "Node " << i << ": ";
-        if (results[i] == numeric_limits<double>::infinity())
-            cout << "INF";
-        else
-            cout << results[i];
-        cout << endl;
-    }
-
-    return 0;
 }
