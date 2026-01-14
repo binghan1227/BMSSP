@@ -113,6 +113,34 @@ void BlockList::split_block_d1(list<Block>::iterator block_it) {
     }
 }
 
+void BlockList::partition_into_blocks_d0(vector<Element>& arr, int start,
+                                          int end, list<Block>& blocks) {
+    int size = end - start;
+    int threshold = (M + 1) / 2; // ceil(M/2)
+
+    if (size <= threshold) {
+        // Base case: create a single block
+        Block b;
+        b.upper_bound = 0;
+        b.id = 0; // D0 blocks don't use BST index
+        for (int i = start; i < end; ++i) {
+            b.elements.push_back(arr[i]);
+        }
+        blocks.push_back(b);
+        return;
+    }
+
+    // Recursive case: partition around median
+    int mid = start + size / 2;
+    nth_element(arr.begin() + start, arr.begin() + mid, arr.begin() + end,
+                [](const Element& a, const Element& b) { return a.d < b.d; });
+
+    // Recurse on left (smaller values) first, then right (larger values)
+    // This ensures blocks are appended in ascending value order
+    partition_into_blocks_d0(arr, start, mid, blocks);
+    partition_into_blocks_d0(arr, mid, end, blocks);
+}
+
 void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
     unordered_map<int, double> best;
     best.reserve(elements.size());
@@ -166,28 +194,22 @@ void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
         return;
     }
 
-    sort(to_add.begin(), to_add.end(),
-         [](const Element& a, const Element& b) { return a.d < b.d; });
+    // Use recursive median partitioning: O(L log(L/M)) instead of O(L log L)
+    list<Block> new_blocks;
+    partition_into_blocks_d0(to_add, 0, (int)to_add.size(), new_blocks);
 
-    int block_size = (M + 1) / 2;
-    int n = (int)to_add.size();
-    for (int i = n; i > 0;) {
-        int start = max(0, i - block_size);
-        int end = i;
-        Block b;
-        b.upper_bound = 0;
-        for (int k = start; k < end; ++k) {
-            b.elements.push_back(to_add[k]);
+    // Set up locators while blocks are in new_blocks
+    // (iterators remain valid after splice)
+    for (auto block_it = new_blocks.begin(); block_it != new_blocks.end();
+         ++block_it) {
+        for (auto el_it = block_it->elements.begin();
+             el_it != block_it->elements.end(); ++el_it) {
+            locator[el_it->u] = {LIST_D0, block_it, el_it, el_it->d};
         }
-
-        D0.push_front(b);
-        auto it = D0.begin();
-        for (auto el_it = it->elements.begin(); el_it != it->elements.end();
-             ++el_it) {
-            locator[el_it->u] = {LIST_D0, it, el_it, el_it->d};
-        }
-        i = start;
     }
+
+    // Splice all new blocks to front of D0
+    D0.splice(D0.begin(), new_blocks);
 }
 
 BlockList::PullResult BlockList::pull() {
@@ -221,10 +243,9 @@ BlockList::PullResult BlockList::pull() {
 
     int K = (int)candidates.size();
     if (K <= M) {
-        // Pull everything; bound = B
+        // Pull everything collected
         for (const auto& p : candidates)
             frontier_ids.push_back(p.second);
-        next_bound = B_global;
     } else {
         // Linear-time selection of the M-th order statistic
         nth_element(candidates.begin(), candidates.begin() + M,
@@ -233,24 +254,18 @@ BlockList::PullResult BlockList::pull() {
                         return a.first < b.first;
                     });
         double dM = candidates[M].first;
-        next_bound = dM;
 
-        // Select strictly smaller than dM (to ensure strict inequality)
-        for (const auto& p : candidates) {
-            if ((int)frontier_ids.size() >= M)
-                break;
-            if (p.first < dM)
-                frontier_ids.push_back(p.second);
+        // Select elements with value < dM first (ensures max(S') < x = dM)
+        for (int i = 0; i < M; ++i) {
+            if (candidates[i].first < dM)
+                frontier_ids.push_back(candidates[i].second);
         }
 
-        // Fallback: ensure progress by taking at least one if all are ties
+        // If all candidates[0..M-1] tie at dM, return all of them to ensure progress.
         if (frontier_ids.empty()) {
-            auto it = min_element(
-                candidates.begin(), candidates.end(),
-                [](const pair<double, int>& a, const pair<double, int>& b) {
-                    return a.first < b.first;
-                });
-            frontier_ids.push_back(it->second);
+            for (int i = 0; i < M; ++i) {
+                frontier_ids.push_back(candidates[i].second);
+            }
         }
     }
 
@@ -274,9 +289,30 @@ BlockList::PullResult BlockList::pull() {
         }
     }
 
-    // If empty after removal, bound should be B
-    if (locator.empty())
+    // Compute the actual minimum remaining value in D0 ∪ D1
+    if (locator.empty()) {
         next_bound = B_global;
+    } else {
+        next_bound = B_global;
+        // Check first non-empty block of D0
+        for (auto& block : D0) {
+            if (!block.elements.empty()) {
+                for (auto& el : block.elements) {
+                    next_bound = min(next_bound, el.d);
+                }
+                break; // Only need first non-empty block (blocks are sorted)
+            }
+        }
+        // Check first non-empty block of D1
+        for (auto& block : D1) {
+            if (!block.elements.empty()) {
+                for (auto& el : block.elements) {
+                    next_bound = min(next_bound, el.d);
+                }
+                break; // Only need first non-empty block (blocks are sorted)
+            }
+        }
+    }
 
     return {frontier_ids, next_bound};
 }

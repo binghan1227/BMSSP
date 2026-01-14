@@ -63,6 +63,8 @@ struct BlockList {
 
   private:
     void split_block_d1(list<Block>::iterator block_it);
+    void partition_into_blocks_d0(vector<Element>& arr, int start, int end,
+                                   list<Block>& blocks);
 };
 
 #endif // BLOCK_LIST_H
