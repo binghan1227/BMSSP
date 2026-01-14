@@ -3,4 +3,14 @@ project(bmssp_solver)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Main executable
 add_executable(bmssp_solver main.cpp bmssp.cpp block_list.cpp)
+
+# Test executable
+add_executable(test_block_list test_block_list.cpp block_list.cpp)
+
+# Enable testing
+enable_testing()
+
+# Add test
+add_test(NAME BlockListTest COMMAND test_block_list)
