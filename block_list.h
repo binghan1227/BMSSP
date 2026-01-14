@@ -13,6 +13,7 @@ using namespace std;
 
 struct BlockList {
     int M;
+    double B_global;
 
     struct Element {
         int u;
@@ -22,6 +23,7 @@ struct BlockList {
     struct Block {
         list<Element> elements;
         double upper_bound;
+        int id;
     };
 
     enum ListType { LIST_D0, LIST_D1 };
@@ -36,9 +38,11 @@ struct BlockList {
     list<Block> D0; // Batch prepends
     list<Block> D1; // Inserts
 
-    // Index for D1: multimap upper_bound -> block iterator.
-    // Used to find the block with smallest upper_bound >= d.
-    multimap<double, list<Block>::iterator> D1_Index;
+    // Index for D1: map (upper_bound, id) -> block iterator.
+    // Used to find the block with smallest upper_bound >= d deterministically.
+    map<pair<double, int>, list<Block>::iterator> D1_Index;
+
+    int next_block_id = 0;
 
     unordered_map<int, LocatorInfo> locator;
 

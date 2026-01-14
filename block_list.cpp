@@ -1,16 +1,18 @@
 #include "block_list.h"
 #include <algorithm>
+#include <climits>
 #include <limits>
 
 using namespace std;
 
-BlockList::BlockList(int m_val, double b_val) : M(m_val) {
+BlockList::BlockList(int m_val, double b_val) : M(m_val), B_global(b_val) {
     if (M < 1)
         M = 1;
     Block b;
-    b.upper_bound = b_val;
+    b.upper_bound = B_global;
+    b.id = next_block_id++;
     D1.push_back(b);
-    D1_Index.insert({b_val, D1.begin()});
+    D1_Index.insert({{b.upper_bound, b.id}, D1.begin()});
 }
 
 void BlockList::insert(int u, double d) {
@@ -26,13 +28,7 @@ void BlockList::insert(int u, double d) {
         if (info.block_it->elements.empty()) {
             if (info.type == LIST_D1) {
                 // Remove from Index
-                auto range = D1_Index.equal_range(info.block_it->upper_bound);
-                for (auto it = range.first; it != range.second; ++it) {
-                    if (it->second == info.block_it) {
-                        D1_Index.erase(it);
-                        break;
-                    }
-                }
+                D1_Index.erase({info.block_it->upper_bound, info.block_it->id});
                 D1.erase(info.block_it);
             } else {
                 D0.erase(info.block_it);
@@ -43,12 +39,13 @@ void BlockList::insert(int u, double d) {
 
     if (D1.empty()) {
         Block b;
-        b.upper_bound = std::numeric_limits<double>::infinity();
+        b.upper_bound = B_global;
+        b.id = next_block_id++;
         D1.push_back(b);
-        D1_Index.insert({b.upper_bound, D1.begin()});
+        D1_Index.insert({{b.upper_bound, b.id}, D1.begin()});
     }
 
-    auto idx_it = D1_Index.lower_bound(d);
+    auto idx_it = D1_Index.lower_bound({d, INT_MIN});
     list<Block>::iterator target_block;
 
     if (idx_it == D1_Index.end()) {
@@ -72,42 +69,43 @@ void BlockList::split_block_d1(list<Block>::iterator block_it) {
     for (const auto& el : block_it->elements)
         els.push_back(el);
 
-    // TODO: Need a O(M) time algorithm
-    sort(els.begin(), els.end(),
-         [](const Element& a, const Element& b) { return a.d < b.d; });
-
     int mid = n / 2;
-    double split_ub = els[mid - 1].d;
+    // Partition around the median position (not fully sorted)
+    nth_element(els.begin(), els.begin() + mid, els.end(),
+                [](const Element& a, const Element& b) { return a.d < b.d; });
+
+    // Compute upper bound for the left block as the max of left partition
+    double left_max = els[0].d;
+    for (int i = 1; i < mid; ++i)
+        left_max = max(left_max, els[i].d);
+
     double old_ub = block_it->upper_bound;
+    int old_id = block_it->id;
 
     // Remove old index entry
-    auto range = D1_Index.equal_range(old_ub);
-    for (auto it = range.first; it != range.second; ++it) {
-        if (it->second == block_it) {
-            D1_Index.erase(it);
-            break;
-        }
-    }
+    D1_Index.erase({old_ub, old_id});
 
     // Update first block (reused)
     block_it->elements.clear();
-    block_it->upper_bound = split_ub;
+    block_it->upper_bound = left_max;
     for (int i = 0; i < mid; ++i) {
         block_it->elements.push_back(els[i]);
         locator[els[i].u] = {LIST_D1, block_it, --block_it->elements.end(),
                              els[i].d};
     }
-    D1_Index.insert({split_ub, block_it});
+    D1_Index.insert({{block_it->upper_bound, block_it->id}, block_it});
 
     // Create second block
     Block new_b;
     new_b.upper_bound = old_ub;
+    new_b.id = next_block_id++;
     for (int i = mid; i < n; ++i) {
         new_b.elements.push_back(els[i]);
     }
 
     auto new_block_it = D1.insert(next(block_it), new_b);
-    D1_Index.insert({old_ub, new_block_it});
+    D1_Index.insert(
+        {{new_block_it->upper_bound, new_block_it->id}, new_block_it});
 
     for (auto it = new_block_it->elements.begin();
          it != new_block_it->elements.end(); ++it) {
@@ -116,17 +114,19 @@ void BlockList::split_block_d1(list<Block>::iterator block_it) {
 }
 
 void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
-    vector<Element> sorted_els;
-    sorted_els.reserve(elements.size());
-    for (auto& p : elements)
-        sorted_els.push_back({p.first, p.second});
-    sort(sorted_els.begin(), sorted_els.end(),
-         [](const Element& a, const Element& b) { return a.d < b.d; });
+    unordered_map<int, double> best;
+    best.reserve(elements.size());
+    for (const auto& p : elements) {
+        auto it = best.find(p.first);
+        if (it == best.end() || p.second < it->second)
+            best[p.first] = p.second;
+    }
 
     vector<Element> to_add;
-    to_add.reserve(sorted_els.size());
+    to_add.reserve(best.size());
 
-    for (const auto& el : sorted_els) {
+    for (const auto& kv : best) {
+        Element el{kv.first, kv.second};
         auto loc_it = locator.find(el.u);
         if (loc_it != locator.end()) {
             if (el.d >= loc_it->second.dist)
@@ -135,14 +135,8 @@ void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
             info.block_it->elements.erase(info.elem_it);
             if (info.block_it->elements.empty()) {
                 if (info.type == LIST_D1) {
-                    auto range =
-                        D1_Index.equal_range(info.block_it->upper_bound);
-                    for (auto it = range.first; it != range.second; ++it) {
-                        if (it->second == info.block_it) {
-                            D1_Index.erase(it);
-                            break;
-                        }
-                    }
+                    D1_Index.erase(
+                        {info.block_it->upper_bound, info.block_it->id});
                     D1.erase(info.block_it);
                 } else {
                     D0.erase(info.block_it);
@@ -156,8 +150,27 @@ void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
     if (to_add.empty())
         return;
 
+    if ((int)to_add.size() <= M) {
+        // Single block, O(L)
+        Block b;
+        b.upper_bound = 0;
+        for (const auto& el : to_add) {
+            b.elements.push_back(el);
+        }
+        D0.push_front(b);
+        auto it = D0.begin();
+        for (auto el_it = it->elements.begin(); el_it != it->elements.end();
+             ++el_it) {
+            locator[el_it->u] = {LIST_D0, it, el_it, el_it->d};
+        }
+        return;
+    }
+
+    sort(to_add.begin(), to_add.end(),
+         [](const Element& a, const Element& b) { return a.d < b.d; });
+
     int block_size = (M + 1) / 2;
-    int n = to_add.size();
+    int n = (int)to_add.size();
     for (int i = n; i > 0;) {
         int start = max(0, i - block_size);
         int end = i;
@@ -204,23 +217,44 @@ BlockList::PullResult BlockList::pull() {
     }
 
     if (candidates.empty())
-        return {{}, next_bound};
+        return {{}, B_global};
 
-    sort(candidates.begin(), candidates.end());
-
-    int count = min((int)candidates.size(), M);
-    for (int i = 0; i < count; ++i) {
-        frontier_ids.push_back(candidates[i].second);
-    }
-
-    if (candidates.size() > M) {
-        next_bound = candidates[M].first;
+    int K = (int)candidates.size();
+    if (K <= M) {
+        // Pull everything; bound = B
+        for (const auto& p : candidates)
+            frontier_ids.push_back(p.second);
+        next_bound = B_global;
     } else {
-        if (count < candidates.size())
-            next_bound = candidates[count].first;
-        // else next_bound = infinity
+        // Linear-time selection of the M-th order statistic
+        nth_element(candidates.begin(), candidates.begin() + M,
+                    candidates.end(),
+                    [](const pair<double, int>& a, const pair<double, int>& b) {
+                        return a.first < b.first;
+                    });
+        double dM = candidates[M].first;
+        next_bound = dM;
+
+        // Select strictly smaller than dM (to ensure strict inequality)
+        for (const auto& p : candidates) {
+            if ((int)frontier_ids.size() >= M)
+                break;
+            if (p.first < dM)
+                frontier_ids.push_back(p.second);
+        }
+
+        // Fallback: ensure progress by taking at least one if all are ties
+        if (frontier_ids.empty()) {
+            auto it = min_element(
+                candidates.begin(), candidates.end(),
+                [](const pair<double, int>& a, const pair<double, int>& b) {
+                    return a.first < b.first;
+                });
+            frontier_ids.push_back(it->second);
+        }
     }
 
+    // Erase selected elements from the structure
     for (int u : frontier_ids) {
         auto loc_it = locator.find(u);
         if (loc_it != locator.end()) {
@@ -229,14 +263,8 @@ BlockList::PullResult BlockList::pull() {
 
             if (info.block_it->elements.empty()) {
                 if (info.type == LIST_D1) {
-                    auto range =
-                        D1_Index.equal_range(info.block_it->upper_bound);
-                    for (auto it = range.first; it != range.second; ++it) {
-                        if (it->second == info.block_it) {
-                            D1_Index.erase(it);
-                            break;
-                        }
-                    }
+                    D1_Index.erase(
+                        {info.block_it->upper_bound, info.block_it->id});
                     D1.erase(info.block_it);
                 } else {
                     D0.erase(info.block_it);
@@ -245,6 +273,10 @@ BlockList::PullResult BlockList::pull() {
             locator.erase(loc_it);
         }
     }
+
+    // If empty after removal, bound should be B
+    if (locator.empty())
+        next_bound = B_global;
 
     return {frontier_ids, next_bound};
 }
