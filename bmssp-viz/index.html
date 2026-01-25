@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMSSP Algorithm Visualizer</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>BMSSP Algorithm Visualizer</h1>
+            <div class="file-controls">
+                <button id="load-graph-btn" class="btn">Load Graph</button>
+                <button id="load-trace-btn" class="btn">Load Trace</button>
+                <input type="file" id="graph-file-input" accept=".in,.txt" hidden>
+                <input type="file" id="trace-file-input" accept=".jsonl,.json" hidden>
+                <span id="file-status" class="file-status"></span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Left Sidebar - Parameters and Legend -->
+            <aside class="sidebar-left">
+                <div class="panel params-panel">
+                    <h3>Parameters</h3>
+                    <div id="params-content" class="params-content">
+                        <div class="param-row"><span class="param-label">n:</span> <span id="param-n">-</span></div>
+                        <div class="param-row"><span class="param-label">k:</span> <span id="param-k">-</span></div>
+                        <div class="param-row"><span class="param-label">t:</span> <span id="param-t">-</span></div>
+                        <div class="param-row"><span class="param-label">l:</span> <span id="param-l">-</span></div>
+                        <div class="param-row"><span class="param-label">src:</span> <span id="param-src">-</span></div>
+                    </div>
+                </div>
+
+                <div class="panel legend-panel">
+                    <h3>Legend</h3>
+                    <div class="legend-content">
+                        <div class="legend-item">
+                            <span class="legend-node unvisited"></span>
+                            <span>Unvisited</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-node frontier"></span>
+                            <span>Frontier</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-node pivot"></span>
+                            <span>Pivot</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-node in-pq"></span>
+                            <span>In PQ</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-node settled"></span>
+                            <span>Settled</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-node source"></span>
+                            <span>Source</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel event-panel">
+                    <h3>Current Event</h3>
+                    <div id="event-description" class="event-description">
+                        Load files to begin
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Graph Visualization -->
+            <main class="graph-container">
+                <div id="graph-svg-container">
+                    <svg id="graph-svg"></svg>
+                </div>
+                <div id="drop-zone" class="drop-zone">
+                    <p>Drag & drop graph (.in) and trace (.jsonl) files here</p>
+                    <p>or use the Load buttons above</p>
+                </div>
+            </main>
+        </div>
+
+        <!-- Playback Controls -->
+        <div class="playback-bar">
+            <div class="playback-controls">
+                <button id="btn-first" class="playback-btn" title="First">|&#9664;</button>
+                <button id="btn-prev" class="playback-btn" title="Previous">&#9664;</button>
+                <button id="btn-play" class="playback-btn play-btn" title="Play/Pause">&#9654;</button>
+                <button id="btn-next" class="playback-btn" title="Next">&#9654;</button>
+                <button id="btn-last" class="playback-btn" title="Last">&#9654;|</button>
+            </div>
+            <div class="progress-container">
+                <input type="range" id="progress-slider" class="progress-slider" min="0" max="100" value="0">
+            </div>
+            <div class="speed-controls">
+                <label for="speed-select">Speed:</label>
+                <select id="speed-select" class="speed-select">
+                    <option value="0.25">0.25x</option>
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                </select>
+            </div>
+            <div class="event-counter">
+                Event: <span id="current-event">0</span> / <span id="total-events">0</span>
+            </div>
+        </div>
+
+        <!-- Bottom Panels -->
+        <div class="bottom-panels">
+            <div class="panel stack-panel">
+                <h3>Recursion Stack</h3>
+                <div id="stack-content" class="stack-content">
+                    <div class="empty-state">No active recursion</div>
+                </div>
+            </div>
+
+            <div class="panel blocklist-panel">
+                <h3>Block List</h3>
+                <div id="blocklist-content" class="blocklist-content">
+                    <div class="empty-state">Empty</div>
+                </div>
+            </div>
+
+            <div class="panel pq-panel">
+                <h3>Priority Queue</h3>
+                <div id="pq-content" class="pq-content">
+                    <div class="empty-state">Empty</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="lib/d3.v7.min.js"></script>
+    <script src="js/constants.js"></script>
+    <script src="js/graphParser.js"></script>
+    <script src="js/traceParser.js"></script>
+    <script src="js/graphRenderer.js"></script>
+    <script src="js/eventProcessor.js"></script>
+    <script src="js/recursionStack.js"></script>
+    <script src="js/blockListView.js"></script>
+    <script src="js/priorityQueueView.js"></script>
+    <script src="js/playbackControls.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 #include "bmssp.h"
 #include "block_list.h"
+#include "trace.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -49,12 +50,20 @@ find_pivots(double bound, const vector<int>& frontier, int k,
         if (tree_size[cur] >= k)
             pivots.insert(cur);
     }
+    // Build pairs with distances for trace output
+    std::vector<std::pair<int,double>> all_layers_with_dist;
+    for (int id : all_layers) {
+        all_layers_with_dist.push_back({id, min_costs[id]});
+    }
+    TRACE("FIND_PIVOTS", TF("pivots", vec_json(vector<int>(pivots.begin(), pivots.end())))
+          TF("all_layers", pairs_json(all_layers_with_dist)));
     return {vector<int>(pivots.begin(), pivots.end()), all_layers};
 }
 
 static pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
                                             const vector<vector<Edge>>& adj,
                                             vector<double>& min_costs) {
+    TRACE("BASE_CASE", TF("node", node_id) TF("B", B));
     priority_queue<State, vector<State>, greater<State>> pq;
     pq.push({node_id, min_costs[node_id]});
     vector<int> u_init;
@@ -66,6 +75,7 @@ static pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
         pq.pop();
         if (visited.count(top.node_id))
             continue;
+        TRACE("BASE_PQ_POP", TF("node", top.node_id) TF("cost", top.cost));
         visited.insert(top.node_id);
         u_init.push_back(top.node_id);
         max_cost = max(max_cost, top.cost);
@@ -90,6 +100,7 @@ static pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
 static pair<double, vector<int>>
 bmssp_bounded(int l, double B, const vector<int>& frontier, int k, int t,
               const vector<vector<Edge>>& adj, vector<double>& min_costs) {
+    TRACE("RECURSION_ENTER", TF("l", l) TF("B", B) TF("frontier", vec_json(frontier)));
     if (l == 0)
         return base_bmssp(B, frontier[0], k, adj, min_costs);
 
@@ -108,6 +119,7 @@ bmssp_bounded(int l, double B, const vector<int>& frontier, int k, int t,
 
     while (u_set.size() < max_u && !block_list.is_empty()) {
         auto pulled = block_list.pull();
+        TRACE("BL_PULL", TF("nodes", vec_json(pulled.frontier)) TF("bound", pulled.bound));
         auto res = bmssp_bounded(l - 1, pulled.bound, pulled.frontier, k, t,
                                  adj, min_costs);
         min_ub = res.first;
@@ -127,11 +139,13 @@ bmssp_bounded(int l, double B, const vector<int>& frontier, int k, int t,
             }
         }
         block_list.batch_prepend(to_prepend);
+        TRACE("BL_PREPEND", TF("elements", pairs_json(to_prepend)));
     }
 
     for (int id : pivot_data.second)
         if (min_costs[id] < min_ub)
             u_set.push_back(id);
+    TRACE("RECURSION_EXIT", TF("l", l) TF("min_ub", min_ub) TF("u_set", vec_json(u_set)));
     return {min_ub, u_set};
 }
 
@@ -140,6 +154,7 @@ vector<double> solve_sssp(int n, const vector<vector<Edge>>& adj, int start) {
     int k = max(2, (int)pow(logn, 1.0 / 3.0));
     int t = max(1, (int)pow(logn, 2.0 / 3.0));
     int l = ceil(logn / t);
+    TRACE("SOLVE_START", TF("n", n) TF("k", k) TF("t", t) TF("l", l) TF("source", start));
 
     vector<double> min_costs(n, numeric_limits<double>::infinity());
     min_costs[start] = 0;

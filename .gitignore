@@ -1,8 +1,29 @@
 arXiv*
+
+# CMake generated files
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+CTestTestfile.cmake
+
+# Build directory
+build/
+
+# Build artifacts
 bmssp_solver
+test_block_list
 *.o
+
+# Test files and input
+Testing/
+*.in
+test_input.txt
+quick_test
+result
+
+# Trace output files
+*.jsonl
+
+# OS files
 .DS_Store
