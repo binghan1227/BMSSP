@@ -13,6 +13,11 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
+SOLVER_STYLES = {
+    "bmssp": {"color": "#2E86AB", "ecolor": "#A23B72", "marker": "o", "label": "BMSSP"},
+    "dijkstra": {"color": "#F6511D", "ecolor": "#C44000", "marker": "^", "label": "Dijkstra"},
+}
+
 
 def read_csv(path):
     """Read a CSV file and return list of dicts with numeric conversion."""
@@ -53,42 +58,59 @@ def aggregate(rows, group_key):
     return result
 
 
+def aggregate_by_solver(rows, group_key):
+    """Split rows by solver, then aggregate each group.
+
+    Returns dict[solver_name -> list[stats]].
+    Backward compatible: rows without a 'solver' column default to 'bmssp'.
+    """
+    by_solver = {}
+    for row in rows:
+        solver = row.get("solver", "bmssp")
+        by_solver.setdefault(solver, []).append(row)
+    return {solver: aggregate(solver_rows, group_key)
+            for solver, solver_rows in by_solver.items()}
+
+
 def plot_node_scaling(rows, output_dir, show):
     """Plot runtime vs. graph size (node scaling experiment)."""
-    stats = aggregate(rows, "nodes")
-    if not stats:
+    solver_stats = aggregate_by_solver(rows, "nodes")
+    if not solver_stats:
         return
 
-    # Infer edge multiplier from first row
     first = rows[0]
     edge_mult = first["edges"] // first["nodes"]
 
-    nodes = [s["nodes"] for s in stats]
-    means = [s["mean"] for s in stats]
-    stds = [s["std"] for s in stats]
-
     fig, ax = plt.subplots(figsize=(10, 7))
 
-    ax.errorbar(
-        nodes, means, yerr=stds,
-        fmt="o-", capsize=5, capthick=2,
-        markersize=8, linewidth=2,
-        color="#2E86AB", ecolor="#A23B72",
-        label="BMSSP Runtime",
-    )
+    all_nodes = set()
+    for solver_name, stats in solver_stats.items():
+        style = SOLVER_STYLES.get(solver_name, {"color": "gray", "ecolor": "black", "marker": "x", "label": solver_name})
+        nodes = [s["nodes"] for s in stats]
+        means = [s["mean"] for s in stats]
+        stds = [s["std"] for s in stats]
+        all_nodes.update(nodes)
 
-    # Individual data points
-    for s in stats:
-        xs = [s["nodes"]] * len(s["timings"])
-        ax.scatter(xs, s["timings"], alpha=0.3, s=20, color="#2E86AB")
+        ax.errorbar(
+            nodes, means, yerr=stds,
+            fmt=f"{style['marker']}-", capsize=5, capthick=2,
+            markersize=8, linewidth=2,
+            color=style["color"], ecolor=style["ecolor"],
+            label=f"{style['label']} Runtime",
+        )
 
+        for s in stats:
+            xs = [s["nodes"]] * len(s["timings"])
+            ax.scatter(xs, s["timings"], alpha=0.3, s=20, color=style["color"])
+
+    all_nodes = sorted(all_nodes)
     ax.set_xlabel("Number of Nodes (n)", fontsize=14)
     ax.set_ylabel("Runtime (ms)", fontsize=14)
-    ax.set_title(f"BMSSP Runtime vs. Graph Size\n(Edge Density: m = {edge_mult}n)", fontsize=16)
+    ax.set_title(f"Runtime vs. Graph Size\n(Edge Density: m = {edge_mult}n)", fontsize=16)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xticks(nodes)
-    ax.set_xticklabels([f"{n // 1000}K" for n in nodes])
+    ax.set_xticks(all_nodes)
+    ax.set_xticklabels([f"{n // 1000}K" for n in all_nodes])
     ax.legend(fontsize=12)
     ax.grid(True, alpha=0.3)
 
@@ -103,36 +125,42 @@ def plot_node_scaling(rows, output_dir, show):
 
 def plot_edge_density(rows, output_dir, show):
     """Plot runtime vs. edge multiplier (edge density experiment)."""
-    stats = aggregate(rows, "multiplier")
-    if not stats:
+    solver_stats = aggregate_by_solver(rows, "multiplier")
+    if not solver_stats:
         return
 
     fixed_nodes = rows[0]["nodes"]
-    multipliers = [s["multiplier"] for s in stats]
-    means = [s["mean"] for s in stats]
-    stds = [s["std"] for s in stats]
 
     fig, ax = plt.subplots(figsize=(10, 7))
 
-    ax.errorbar(
-        multipliers, means, yerr=stds,
-        fmt="s-", capsize=5, capthick=2,
-        markersize=8, linewidth=2,
-        color="#E94F37", ecolor="#393E41",
-        label="BMSSP Runtime",
-    )
+    all_multipliers = set()
+    for solver_name, stats in solver_stats.items():
+        style = SOLVER_STYLES.get(solver_name, {"color": "gray", "ecolor": "black", "marker": "x", "label": solver_name})
+        multipliers = [s["multiplier"] for s in stats]
+        means = [s["mean"] for s in stats]
+        stds = [s["std"] for s in stats]
+        all_multipliers.update(multipliers)
 
-    for s in stats:
-        xs = [s["multiplier"]] * len(s["timings"])
-        ax.scatter(xs, s["timings"], alpha=0.3, s=20, color="#E94F37")
+        ax.errorbar(
+            multipliers, means, yerr=stds,
+            fmt=f"{style['marker']}-", capsize=5, capthick=2,
+            markersize=8, linewidth=2,
+            color=style["color"], ecolor=style["ecolor"],
+            label=f"{style['label']} Runtime",
+        )
 
+        for s in stats:
+            xs = [s["multiplier"]] * len(s["timings"])
+            ax.scatter(xs, s["timings"], alpha=0.3, s=20, color=style["color"])
+
+    all_multipliers = sorted(all_multipliers)
     ax.set_xlabel("Edge Multiplier (m / n)", fontsize=14)
     ax.set_ylabel("Runtime (ms)", fontsize=14)
-    ax.set_title(f"BMSSP Runtime vs. Edge Density\n(Fixed n = {fixed_nodes:,})", fontsize=16)
+    ax.set_title(f"Runtime vs. Edge Density\n(Fixed n = {fixed_nodes:,})", fontsize=16)
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
-    ax.set_xticks(multipliers)
-    ax.set_xticklabels([str(m) for m in multipliers])
+    ax.set_xticks(all_multipliers)
+    ax.set_xticklabels([str(m) for m in all_multipliers])
     ax.legend(fontsize=12)
     ax.grid(True, alpha=0.3)
 
@@ -140,8 +168,8 @@ def plot_edge_density(rows, output_dir, show):
     ax2 = ax.twiny()
     ax2.set_xscale("log", base=2)
     ax2.set_xlim(ax.get_xlim())
-    ax2.set_xticks(multipliers)
-    ax2.set_xticklabels([f"{m * fixed_nodes // 1000}K" for m in multipliers])
+    ax2.set_xticks(all_multipliers)
+    ax2.set_xticklabels([f"{m * fixed_nodes // 1000}K" for m in all_multipliers])
     ax2.set_xlabel("Number of Edges (m)", fontsize=12)
 
     plt.tight_layout()
@@ -155,9 +183,9 @@ def plot_edge_density(rows, output_dir, show):
 
 def plot_combined(node_rows, edge_rows, output_dir, show):
     """Side-by-side combined analysis plot."""
-    node_stats = aggregate(node_rows, "nodes")
-    edge_stats = aggregate(edge_rows, "multiplier")
-    if not node_stats or not edge_stats:
+    node_solver_stats = aggregate_by_solver(node_rows, "nodes")
+    edge_solver_stats = aggregate_by_solver(edge_rows, "multiplier")
+    if not node_solver_stats or not edge_solver_stats:
         return
 
     edge_mult = node_rows[0]["edges"] // node_rows[0]["nodes"]
@@ -166,40 +194,54 @@ def plot_combined(node_rows, edge_rows, output_dir, show):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
     # Left: node scaling
-    nodes = [s["nodes"] for s in node_stats]
-    ax1.errorbar(
-        nodes, [s["mean"] for s in node_stats], yerr=[s["std"] for s in node_stats],
-        fmt="o-", capsize=5, capthick=2,
-        markersize=8, linewidth=2,
-        color="#2E86AB", ecolor="#A23B72",
-    )
+    all_nodes = set()
+    for solver_name, stats in node_solver_stats.items():
+        style = SOLVER_STYLES.get(solver_name, {"color": "gray", "ecolor": "black", "marker": "x", "label": solver_name})
+        nodes = [s["nodes"] for s in stats]
+        all_nodes.update(nodes)
+        ax1.errorbar(
+            nodes, [s["mean"] for s in stats], yerr=[s["std"] for s in stats],
+            fmt=f"{style['marker']}-", capsize=5, capthick=2,
+            markersize=8, linewidth=2,
+            color=style["color"], ecolor=style["ecolor"],
+            label=style["label"],
+        )
+    all_nodes = sorted(all_nodes)
     ax1.set_xlabel("Number of Nodes (n)", fontsize=12)
     ax1.set_ylabel("Runtime (ms)", fontsize=12)
     ax1.set_title(f"Runtime vs. Graph Size (m = {edge_mult}n)", fontsize=14)
     ax1.set_xscale("log")
     ax1.set_yscale("log")
-    ax1.set_xticks(nodes)
-    ax1.set_xticklabels([f"{n // 1000}K" for n in nodes])
+    ax1.set_xticks(all_nodes)
+    ax1.set_xticklabels([f"{n // 1000}K" for n in all_nodes])
+    ax1.legend(fontsize=10)
     ax1.grid(True, alpha=0.3)
 
     # Right: edge density
-    multipliers = [s["multiplier"] for s in edge_stats]
-    ax2.errorbar(
-        multipliers, [s["mean"] for s in edge_stats], yerr=[s["std"] for s in edge_stats],
-        fmt="s-", capsize=5, capthick=2,
-        markersize=8, linewidth=2,
-        color="#E94F37", ecolor="#393E41",
-    )
+    all_multipliers = set()
+    for solver_name, stats in edge_solver_stats.items():
+        style = SOLVER_STYLES.get(solver_name, {"color": "gray", "ecolor": "black", "marker": "x", "label": solver_name})
+        multipliers = [s["multiplier"] for s in stats]
+        all_multipliers.update(multipliers)
+        ax2.errorbar(
+            multipliers, [s["mean"] for s in stats], yerr=[s["std"] for s in stats],
+            fmt=f"{style['marker']}-", capsize=5, capthick=2,
+            markersize=8, linewidth=2,
+            color=style["color"], ecolor=style["ecolor"],
+            label=style["label"],
+        )
+    all_multipliers = sorted(all_multipliers)
     ax2.set_xlabel("Edge Multiplier (m / n)", fontsize=12)
     ax2.set_ylabel("Runtime (ms)", fontsize=12)
     ax2.set_title(f"Runtime vs. Edge Density (n = {fixed_nodes:,})", fontsize=14)
     ax2.set_xscale("log", base=2)
     ax2.set_yscale("log")
-    ax2.set_xticks(multipliers)
-    ax2.set_xticklabels([str(m) for m in multipliers])
+    ax2.set_xticks(all_multipliers)
+    ax2.set_xticklabels([str(m) for m in all_multipliers])
+    ax2.legend(fontsize=10)
     ax2.grid(True, alpha=0.3)
 
-    plt.suptitle("BMSSP Solver Performance Analysis", fontsize=16, y=1.02)
+    plt.suptitle("SSSP Solver Performance Analysis", fontsize=16, y=1.02)
     plt.tight_layout()
     path = os.path.join(output_dir, "combined.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")

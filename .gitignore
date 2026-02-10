@@ -21,6 +21,7 @@ Testing/
 test_input.txt
 quick_test
 result
+*.csv
 
 # Trace output files
 *.jsonl

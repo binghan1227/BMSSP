@@ -70,15 +70,15 @@ def write_graph_to_file(filepath, n, edges, source=0):
         f.write(f"{source}\n")
 
 
-def extract_timing(output):
+def extract_timing(output, label="BMSSP"):
     """Extract timing in milliseconds from solver output."""
-    match = re.search(r"BMSSP Time:\s*([\d.]+)\s*ms", output)
+    match = re.search(rf"{label} Time:\s*([\d.]+)\s*ms", output)
     if match:
         return float(match.group(1))
     raise ValueError(f"Could not extract timing from output: {output[:200]}")
 
 
-def run_solver(solver_path, input_file, timeout=300):
+def run_solver(solver_path, input_file, label="BMSSP", timeout=300):
     """Run the solver on an input file. Returns (time_ms, success)."""
     try:
         with open(input_file, "r") as f:
@@ -92,7 +92,7 @@ def run_solver(solver_path, input_file, timeout=300):
         if result.returncode != 0:
             print(f"  Warning: Non-zero exit code: {result.returncode}")
             return 0.0, False
-        return extract_timing(result.stdout), True
+        return extract_timing(result.stdout, label), True
     except subprocess.TimeoutExpired:
         print("  Warning: Solver timed out")
         return 0.0, False
@@ -106,7 +106,8 @@ def make_seed(n, m, trial):
     return hash((n, m, trial)) & 0x7FFFFFFF
 
 
-def run_node_scaling(solver_path, node_counts, edge_multiplier, trials, output_dir):
+def run_node_scaling(solver_path, node_counts, edge_multiplier, trials, output_dir,
+                     dijkstra_path=None):
     """Run node-scaling experiment and write results to CSV."""
     csv_path = os.path.join(output_dir, "node_scaling.csv")
     print("=" * 60)
@@ -114,11 +115,17 @@ def run_node_scaling(solver_path, node_counts, edge_multiplier, trials, output_d
     print(f"Edge density: m = {edge_multiplier} * n")
     print(f"Node counts: {node_counts}")
     print(f"Trials per configuration: {trials}")
+    if dijkstra_path:
+        print("Dijkstra baseline: enabled")
     print("=" * 60)
+
+    solvers = [("bmssp", solver_path, "BMSSP")]
+    if dijkstra_path:
+        solvers.append(("dijkstra", dijkstra_path, "Dijkstra"))
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["nodes", "edges", "trial", "seed", "time_ms"])
+        writer.writerow(["nodes", "edges", "trial", "seed", "solver", "time_ms"])
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for n in node_counts:
@@ -129,17 +136,19 @@ def run_node_scaling(solver_path, node_counts, edge_multiplier, trials, output_d
                     graph_file = os.path.join(tmpdir, "graph.in")
                     edges = generate_connected_graph(n, m, seed=seed)
                     write_graph_to_file(graph_file, n, edges)
-                    timing, success = run_solver(solver_path, graph_file)
-                    if success:
-                        writer.writerow([n, m, trial, seed, f"{timing:.4f}"])
-                        print(f"  Trial {trial+1}/{trials}: {timing:.2f} ms")
-                    else:
-                        print(f"  Trial {trial+1}/{trials}: FAILED")
+                    for solver_name, spath, label in solvers:
+                        timing, success = run_solver(spath, graph_file, label)
+                        if success:
+                            writer.writerow([n, m, trial, seed, solver_name, f"{timing:.4f}"])
+                            print(f"  Trial {trial+1}/{trials} [{solver_name}]: {timing:.2f} ms")
+                        else:
+                            print(f"  Trial {trial+1}/{trials} [{solver_name}]: FAILED")
 
     print(f"\nResults saved to {csv_path}")
 
 
-def run_edge_density(solver_path, fixed_nodes, edge_multipliers, trials, output_dir):
+def run_edge_density(solver_path, fixed_nodes, edge_multipliers, trials, output_dir,
+                     dijkstra_path=None):
     """Run edge-density experiment and write results to CSV."""
     csv_path = os.path.join(output_dir, "edge_density.csv")
     print("\n" + "=" * 60)
@@ -147,11 +156,17 @@ def run_edge_density(solver_path, fixed_nodes, edge_multipliers, trials, output_
     print(f"Fixed nodes: n = {fixed_nodes:,}")
     print(f"Edge multipliers: {edge_multipliers}")
     print(f"Trials per configuration: {trials}")
+    if dijkstra_path:
+        print("Dijkstra baseline: enabled")
     print("=" * 60)
+
+    solvers = [("bmssp", solver_path, "BMSSP")]
+    if dijkstra_path:
+        solvers.append(("dijkstra", dijkstra_path, "Dijkstra"))
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["nodes", "edges", "multiplier", "trial", "seed", "time_ms"])
+        writer.writerow(["nodes", "edges", "multiplier", "trial", "seed", "solver", "time_ms"])
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for multiplier in edge_multipliers:
@@ -163,12 +178,13 @@ def run_edge_density(solver_path, fixed_nodes, edge_multipliers, trials, output_
                     graph_file = os.path.join(tmpdir, "graph.in")
                     edges = generate_connected_graph(n, m, seed=seed)
                     write_graph_to_file(graph_file, n, edges)
-                    timing, success = run_solver(solver_path, graph_file)
-                    if success:
-                        writer.writerow([n, m, multiplier, trial, seed, f"{timing:.4f}"])
-                        print(f"  Trial {trial+1}/{trials}: {timing:.2f} ms")
-                    else:
-                        print(f"  Trial {trial+1}/{trials}: FAILED")
+                    for solver_name, spath, label in solvers:
+                        timing, success = run_solver(spath, graph_file, label)
+                        if success:
+                            writer.writerow([n, m, multiplier, trial, seed, solver_name, f"{timing:.4f}"])
+                            print(f"  Trial {trial+1}/{trials} [{solver_name}]: {timing:.2f} ms")
+                        else:
+                            print(f"  Trial {trial+1}/{trials} [{solver_name}]: FAILED")
 
     print(f"\nResults saved to {csv_path}")
 
@@ -232,6 +248,16 @@ def main():
         action="store_true",
         help="Skip the edge density experiment",
     )
+    parser.add_argument(
+        "--dijkstra-solver",
+        default="../build/dijkstra_solver",
+        help="Path to Dijkstra baseline binary (default: ../build/dijkstra_solver)",
+    )
+    parser.add_argument(
+        "--skip-dijkstra",
+        action="store_true",
+        help="Skip the Dijkstra baseline comparison",
+    )
 
     args = parser.parse_args()
 
@@ -241,16 +267,27 @@ def main():
         print("Build it first: cd .. && cmake -B build && cmake --build build", file=sys.stderr)
         sys.exit(1)
 
+    dijkstra_path = None
+    if not args.skip_dijkstra:
+        dp = os.path.abspath(args.dijkstra_solver)
+        if os.path.isfile(dp):
+            dijkstra_path = dp
+            print(f"Dijkstra baseline: {dijkstra_path}")
+        else:
+            print(f"Warning: Dijkstra solver not found at {dp}, skipping baseline")
+
     os.makedirs(args.output_dir, exist_ok=True)
 
     if not args.skip_node_scaling:
         run_node_scaling(
-            solver_path, args.node_counts, args.edge_multiplier, args.trials, args.output_dir
+            solver_path, args.node_counts, args.edge_multiplier, args.trials, args.output_dir,
+            dijkstra_path,
         )
 
     if not args.skip_edge_density:
         run_edge_density(
-            solver_path, args.fixed_nodes, args.edge_multipliers, args.trials, args.output_dir
+            solver_path, args.fixed_nodes, args.edge_multipliers, args.trials, args.output_dir,
+            dijkstra_path,
         )
 
     print("\nAll experiments complete.")

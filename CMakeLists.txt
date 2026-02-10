@@ -12,6 +12,9 @@ endif()
 # Main executable
 add_executable(bmssp_solver main.cpp bmssp.cpp block_list.cpp)
 
+# Dijkstra baseline executable
+add_executable(dijkstra_solver dijkstra.cpp)
+
 # Test executable
 add_executable(test_block_list test_block_list.cpp block_list.cpp)
 

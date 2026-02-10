@@ -4,6 +4,7 @@ Implementation of the BMSSP single-source shortest path algorithm with a block-l
 
 ## Features
 - C++17 implementation of BMSSP for directed weighted graphs.
+- Dijkstra baseline solver for performance comparison.
 - BlockList data structure with unit tests.
 - Optional JSONL tracing to drive the visualizer.
 - Sample inputs for quick validation.
@@ -17,6 +18,7 @@ cmake --build build
 
 This produces the following binaries in `build/`:
 - `bmssp_solver`
+- `dijkstra_solver`
 - `test_block_list`
 
 ## Run
@@ -92,7 +94,7 @@ cd experiments
 python3 run_experiments.py
 ```
 
-This generates random connected directed graphs, runs the solver, and logs per-trial results to CSV files in `experiments/results/`. Seeds are deterministic so results are reproducible.
+This generates random connected directed graphs, runs both BMSSP and the Dijkstra baseline on each graph, and logs per-trial results to CSV files in `experiments/results/`. Seeds are deterministic so results are reproducible.
 
 Two experiment types are included:
 - **Node scaling** -- varies graph size with a fixed edge density (`m = k * n`).
@@ -110,6 +112,8 @@ Key flags:
 | `--edge-multipliers` | `2,4,8,16,32,64` | Comma-separated multipliers for edge density |
 | `--skip-node-scaling` | | Skip the node scaling experiment |
 | `--skip-edge-density` | | Skip the edge density experiment |
+| `--dijkstra-solver` | `../build/dijkstra_solver` | Path to Dijkstra baseline binary |
+| `--skip-dijkstra` | | Skip the Dijkstra baseline comparison |
 
 ### Visualizing results
 
@@ -118,7 +122,7 @@ cd experiments
 python3 visualize.py --no-show
 ```
 
-Reads the CSV files and produces plots (node scaling, edge density, and a combined side-by-side view). Plots are saved to `experiments/plots/`.
+Reads the CSV files and produces plots (node scaling, edge density, and a combined side-by-side view). When both solvers are present in the data, plots overlay BMSSP and Dijkstra curves with distinct colors and legends. Plots are saved to `experiments/plots/`.
 
 Requires `matplotlib` and `numpy`.
 
@@ -133,6 +137,7 @@ Key flags:
 ## Project Layout
 
 - `main.cpp`: CLI entrypoint for the BMSSP solver.
+- `dijkstra.cpp`: Dijkstra baseline solver (same I/O format as `main.cpp`).
 - `bmssp.cpp`, `bmssp.h`: BMSSP algorithm implementation.
 - `block_list.cpp`, `block_list.h`: BlockList data structure.
 - `test_block_list.cpp`: BlockList correctness tests.
