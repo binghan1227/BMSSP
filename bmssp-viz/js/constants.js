@@ -32,7 +32,9 @@ const CONSTANTS = {
         BASE_CASE: 'BASE_CASE',
         BASE_PQ_POP: 'BASE_PQ_POP',
         BL_PULL: 'BL_PULL',
-        BL_PREPEND: 'BL_PREPEND'
+        BL_PREPEND: 'BL_PREPEND',
+        BASE_RELAX: 'BASE_RELAX',
+        BL_INSERT: 'BL_INSERT'
     },
 
     // Graph rendering settings
@@ -74,7 +76,13 @@ const EVENT_DESCRIPTIONS = {
     SOLVE_START: (data) => `Starting BMSSP solve from source ${data.source} with n=${data.n}, k=${data.k}, t=${data.t}, l=${data.l}`,
     RECURSION_ENTER: (data) => `Entering recursion level ${data.l} with B=${formatBound(data.B)}, frontier: [${data.frontier.join(', ')}]`,
     RECURSION_EXIT: (data) => `Exiting recursion level ${data.l}, settled nodes: [${data.u_set.slice(0, 5).join(', ')}${data.u_set.length > 5 ? '...' : ''}]`,
-    FIND_PIVOTS: (data) => `Found pivots: [${data.pivots.join(', ')}], exploring layers: [${data.all_layers.slice(0, 5).join(', ')}${data.all_layers.length > 5 ? '...' : ''}]`,
+    FIND_PIVOTS: (data) => {
+        const layerStr = data.all_layers.slice(0, 5).map(item =>
+            typeof item === 'object' ? `${item.n}` : `${item}`
+        ).join(', ');
+        const more = data.all_layers.length > 5 ? '...' : '';
+        return `Found pivots: [${data.pivots.join(', ')}], ${data.all_layers.length} nodes explored: [${layerStr}${more}]`;
+    },
     BASE_CASE: (data) => `Base case for node ${data.node} with B=${formatBound(data.B)}`,
     BASE_PQ_POP: (data) => `PQ pop: node ${data.node} with cost ${data.cost.toFixed(2)}`,
     BL_PULL: (data) => `Pulling from block list: [${data.nodes.join(', ')}] with bound ${formatBound(data.bound)}`,
@@ -83,6 +91,12 @@ const EVENT_DESCRIPTIONS = {
         const items = data.elements.slice(0, 3).map(e => `(${e.n}, ${e.d.toFixed(1)})`).join(', ');
         const more = data.elements.length > 3 ? ` +${data.elements.length - 3} more` : '';
         return `Prepending to block list: [${items}${more}]`;
+    },
+    BASE_RELAX: (data) => `Edge relaxation: ${data.from} → ${data.to} with cost ${data.cost.toFixed(2)}`,
+    BL_INSERT: (data) => {
+        const items = data.elements.slice(0, 3).map(e => `(${e.n}, ${e.d.toFixed(1)})`).join(', ');
+        const more = data.elements.length > 3 ? ` +${data.elements.length - 3} more` : '';
+        return `Inserting into block list D1: [${items}${more}]`;
     }
 };
 

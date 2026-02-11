@@ -7,8 +7,9 @@ cmake_install.cmake
 Makefile
 CTestTestfile.cmake
 
-# Build directory
+# Build directories
 build/
+build-trace/
 
 # Build artifacts
 bmssp_solver

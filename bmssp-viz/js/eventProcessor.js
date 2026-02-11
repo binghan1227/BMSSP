@@ -234,6 +234,14 @@ class EventProcessor {
                 this._handleBLPrepend(event, updateGraph);
                 break;
 
+            case CONSTANTS.EVENTS.BASE_RELAX:
+                this._handleBaseRelax(event, updateGraph);
+                break;
+
+            case CONSTANTS.EVENTS.BL_INSERT:
+                this._handleBLInsert(event, updateGraph);
+                break;
+
             default:
                 console.warn(`Unknown event type: ${type}`);
         }
@@ -270,7 +278,9 @@ class EventProcessor {
         if (event.frontier) {
             event.frontier.forEach(nodeId => {
                 this.state.frontierNodes.add(nodeId);
-                if (updateGraph && this.graphRenderer && !this.state.settledNodes.has(nodeId)) {
+                if (updateGraph && this.graphRenderer &&
+                    !this.state.settledNodes.has(nodeId) &&
+                    !this.state.pivotNodes.has(nodeId)) {
                     this.graphRenderer.setNodeState(nodeId, CONSTANTS.NODE_STATES.FRONTIER);
                 }
             });
@@ -329,9 +339,9 @@ class EventProcessor {
                 }
 
                 // Mark as frontier if not already settled/pivot
-                if (updateGraph && this.graphRenderer) {
-                    if (!this.state.pivotNodes.has(nodeId) && !this.state.settledNodes.has(nodeId)) {
-                        this.state.frontierNodes.add(nodeId);
+                if (!this.state.pivotNodes.has(nodeId) && !this.state.settledNodes.has(nodeId)) {
+                    this.state.frontierNodes.add(nodeId);
+                    if (updateGraph && this.graphRenderer) {
                         this.graphRenderer.setNodeState(nodeId, CONSTANTS.NODE_STATES.FRONTIER);
                     }
                 }
@@ -378,14 +388,14 @@ class EventProcessor {
         });
 
         // Mark as frontier
-        if (updateGraph && this.graphRenderer) {
-            nodes.forEach(nodeId => {
-                if (!this.state.settledNodes.has(nodeId)) {
-                    this.state.frontierNodes.add(nodeId);
+        nodes.forEach(nodeId => {
+            if (!this.state.settledNodes.has(nodeId)) {
+                this.state.frontierNodes.add(nodeId);
+                if (updateGraph && this.graphRenderer) {
                     this.graphRenderer.setNodeState(nodeId, CONSTANTS.NODE_STATES.FRONTIER);
                 }
-            });
-        }
+            }
+        });
     }
 
     _handleBLPrepend(event, updateGraph) {
@@ -398,19 +408,69 @@ class EventProcessor {
         this.state.blockList.D0 = [...newItems, ...this.state.blockList.D0];
 
         // Update distances and node states
-        if (updateGraph && this.graphRenderer) {
-            event.elements.forEach(e => {
-                const currentDist = this.state.distances.get(e.n);
-                if (currentDist === undefined || e.d < currentDist) {
-                    this.state.distances.set(e.n, e.d);
+        event.elements.forEach(e => {
+            const currentDist = this.state.distances.get(e.n);
+            if (currentDist === undefined || e.d < currentDist) {
+                this.state.distances.set(e.n, e.d);
+                if (updateGraph && this.graphRenderer) {
                     this.graphRenderer.setNodeDistance(e.n, e.d);
                 }
-
-                if (!this.state.settledNodes.has(e.n)) {
-                    this.graphRenderer.setNodeState(e.n, CONSTANTS.NODE_STATES.IN_PQ);
+            }
+            if (!this.state.settledNodes.has(e.n)) {
+                this.state.frontierNodes.add(e.n);
+                if (updateGraph && this.graphRenderer) {
+                    this.graphRenderer.setNodeState(e.n, CONSTANTS.NODE_STATES.FRONTIER);
                 }
-            });
+            }
+        });
+    }
+
+    _handleBaseRelax(event, updateGraph) {
+        const toNode = event.to;
+        const cost = event.cost;
+
+        // Update distance
+        const currentDist = this.state.distances.get(toNode);
+        if (currentDist === undefined || cost < currentDist) {
+            this.state.distances.set(toNode, cost);
+            if (updateGraph && this.graphRenderer) {
+                this.graphRenderer.setNodeDistance(toNode, cost);
+            }
         }
+
+        // Add to PQ state
+        this.state.priorityQueue.push({ node: toNode, cost: cost });
+
+        if (!this.state.settledNodes.has(toNode)) {
+            if (updateGraph && this.graphRenderer) {
+                this.graphRenderer.setNodeState(toNode, CONSTANTS.NODE_STATES.IN_PQ);
+            }
+        }
+    }
+
+    _handleBLInsert(event, updateGraph) {
+        if (!event.elements || event.elements.length === 0) {
+            return;
+        }
+
+        // Add to D1
+        event.elements.forEach(e => {
+            this.state.blockList.D1.push({ n: e.n, d: e.d });
+
+            const currentDist = this.state.distances.get(e.n);
+            if (currentDist === undefined || e.d < currentDist) {
+                this.state.distances.set(e.n, e.d);
+                if (updateGraph && this.graphRenderer) {
+                    this.graphRenderer.setNodeDistance(e.n, e.d);
+                }
+            }
+            if (!this.state.settledNodes.has(e.n)) {
+                this.state.frontierNodes.add(e.n);
+                if (updateGraph && this.graphRenderer) {
+                    this.graphRenderer.setNodeState(e.n, CONSTANTS.NODE_STATES.FRONTIER);
+                }
+            }
+        });
     }
 
     /**
@@ -446,12 +506,12 @@ class EventProcessor {
             this.graphRenderer.setNodeDistance(nodeId, dist);
         });
 
-        // Mark source
+        // Mark source only if it hasn't been assigned a more specific state
         if (this.state.params) {
             const source = this.state.params.source;
-            if (this.state.settledNodes.has(source)) {
-                this.graphRenderer.setNodeState(source, CONSTANTS.NODE_STATES.SETTLED, false);
-            } else {
+            if (!this.state.settledNodes.has(source) &&
+                !this.state.frontierNodes.has(source) &&
+                !this.state.pivotNodes.has(source)) {
                 this.graphRenderer.setNodeState(source, CONSTANTS.NODE_STATES.SOURCE, false);
             }
         }

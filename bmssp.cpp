@@ -84,6 +84,7 @@ static pair<double, vector<int>> base_bmssp(double B, int node_id, int k,
             double d = top.cost + e.weight;
             if (d <= min_costs[e.to] && d < B) {
                 min_costs[e.to] = d;
+                TRACE("BASE_RELAX", TF("from", top.node_id) TF("to", e.to) TF("cost", d));
                 pq.push({e.to, d});
             }
         }
@@ -109,10 +110,14 @@ bmssp_bounded(int l, double B, const vector<int>& frontier, int k, int t,
     BlockList block_list(M, B);
     double min_ub = B;
 
+    std::vector<std::pair<int,double>> pivot_inserts;
     for (int p : pivot_data.first) {
         block_list.insert(p, min_costs[p]);
         min_ub = min(min_ub, min_costs[p]);
+        pivot_inserts.push_back({p, min_costs[p]});
     }
+    if (!pivot_inserts.empty())
+        TRACE("BL_INSERT", TF("elements", pairs_json(pivot_inserts)));
 
     vector<int> u_set;
     size_t max_u = k * pow(2, t * l);
@@ -125,19 +130,23 @@ bmssp_bounded(int l, double B, const vector<int>& frontier, int k, int t,
         min_ub = res.first;
 
         vector<pair<int, double>> to_prepend;
+        vector<pair<int, double>> d1_inserts;
         for (int u : res.second) {
             u_set.push_back(u);
             for (auto& e : adj[u]) {
                 double d = min_costs[u] + e.weight;
                 if (d <= min_costs[e.to]) {
                     min_costs[e.to] = d;
-                    if (d >= pulled.bound && d < B)
+                    if (d >= pulled.bound && d < B) {
                         block_list.insert(e.to, d);
-                    else if (d >= res.first && d < pulled.bound)
+                        d1_inserts.push_back({e.to, d});
+                    } else if (d >= res.first && d < pulled.bound)
                         to_prepend.push_back({e.to, d});
                 }
             }
         }
+        if (!d1_inserts.empty())
+            TRACE("BL_INSERT", TF("elements", pairs_json(d1_inserts)));
         block_list.batch_prepend(to_prepend);
         TRACE("BL_PREPEND", TF("elements", pairs_json(to_prepend)));
     }
