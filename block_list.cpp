@@ -8,11 +8,23 @@ using namespace std;
 BlockList::BlockList(int m_val, double b_val) : M(m_val), B_global(b_val) {
     if (M < 1)
         M = 1;
+    locator.reserve(M * 2);
     Block b;
     b.upper_bound = B_global;
     b.id = next_block_id++;
     D1.push_back(b);
     D1_Index.insert({{b.upper_bound, b.id}, D1.begin()});
+}
+
+void BlockList::erase_element(list<Block>::iterator block_it, int elem_idx) {
+    auto& elems = block_it->elements;
+    int last = (int)elems.size() - 1;
+    if (elem_idx != last) {
+        int swapped_u = elems[last].u;
+        locator[swapped_u].elem_idx = elem_idx;
+        swap(elems[elem_idx], elems[last]);
+    }
+    elems.pop_back();
 }
 
 void BlockList::insert(int u, double d) {
@@ -21,13 +33,11 @@ void BlockList::insert(int u, double d) {
         if (d >= loc_it->second.dist)
             return;
 
-        // Remove existing
         auto& info = loc_it->second;
-        info.block_it->elements.erase(info.elem_it);
+        erase_element(info.block_it, info.elem_idx);
 
         if (info.block_it->elements.empty()) {
             if (info.type == LIST_D1) {
-                // Remove from Index
                 D1_Index.erase({info.block_it->upper_bound, info.block_it->id});
                 D1.erase(info.block_it);
             } else {
@@ -55,9 +65,10 @@ void BlockList::insert(int u, double d) {
     }
 
     target_block->elements.push_back({u, d});
-    locator[u] = {LIST_D1, target_block, --target_block->elements.end(), d};
+    int idx = (int)target_block->elements.size() - 1;
+    locator[u] = {target_block, d, idx, LIST_D1};
 
-    if (target_block->elements.size() > M) {
+    if ((int)target_block->elements.size() > M) {
         split_block_d1(target_block);
     }
 }
@@ -70,11 +81,9 @@ void BlockList::split_block_d1(list<Block>::iterator block_it) {
         els.push_back(el);
 
     int mid = n / 2;
-    // Partition around the median position (not fully sorted)
     nth_element(els.begin(), els.begin() + mid, els.end(),
                 [](const Element& a, const Element& b) { return a.d < b.d; });
 
-    // Compute upper bound for the left block as the max of left partition
     double left_max = els[0].d;
     for (int i = 1; i < mid; ++i)
         left_max = max(left_max, els[i].d);
@@ -82,20 +91,16 @@ void BlockList::split_block_d1(list<Block>::iterator block_it) {
     double old_ub = block_it->upper_bound;
     int old_id = block_it->id;
 
-    // Remove old index entry
     D1_Index.erase({old_ub, old_id});
 
-    // Update first block (reused)
     block_it->elements.clear();
     block_it->upper_bound = left_max;
     for (int i = 0; i < mid; ++i) {
         block_it->elements.push_back(els[i]);
-        locator[els[i].u] = {LIST_D1, block_it, --block_it->elements.end(),
-                             els[i].d};
+        locator[els[i].u] = {block_it, els[i].d, i, LIST_D1};
     }
     D1_Index.insert({{block_it->upper_bound, block_it->id}, block_it});
 
-    // Create second block
     Block new_b;
     new_b.upper_bound = old_ub;
     new_b.id = next_block_id++;
@@ -107,9 +112,9 @@ void BlockList::split_block_d1(list<Block>::iterator block_it) {
     D1_Index.insert(
         {{new_block_it->upper_bound, new_block_it->id}, new_block_it});
 
-    for (auto it = new_block_it->elements.begin();
-         it != new_block_it->elements.end(); ++it) {
-        locator[it->u] = {LIST_D1, new_block_it, it, it->d};
+    for (int i = 0; i < (int)new_block_it->elements.size(); ++i) {
+        auto& el = new_block_it->elements[i];
+        locator[el.u] = {new_block_it, el.d, i, LIST_D1};
     }
 }
 
@@ -119,10 +124,9 @@ void BlockList::partition_into_blocks_d0(vector<Element>& arr, int start,
     int threshold = (M + 1) / 2; // ceil(M/2)
 
     if (size <= threshold) {
-        // Base case: create a single block
         Block b;
         b.upper_bound = 0;
-        b.id = 0; // D0 blocks don't use BST index
+        b.id = 0;
         for (int i = start; i < end; ++i) {
             b.elements.push_back(arr[i]);
         }
@@ -130,13 +134,10 @@ void BlockList::partition_into_blocks_d0(vector<Element>& arr, int start,
         return;
     }
 
-    // Recursive case: partition around median
     int mid = start + size / 2;
     nth_element(arr.begin() + start, arr.begin() + mid, arr.begin() + end,
                 [](const Element& a, const Element& b) { return a.d < b.d; });
 
-    // Recurse on left (smaller values) first, then right (larger values)
-    // This ensures blocks are appended in ascending value order
     partition_into_blocks_d0(arr, start, mid, blocks);
     partition_into_blocks_d0(arr, mid, end, blocks);
 }
@@ -160,7 +161,7 @@ void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
             if (el.d >= loc_it->second.dist)
                 continue;
             auto& info = loc_it->second;
-            info.block_it->elements.erase(info.elem_it);
+            erase_element(info.block_it, info.elem_idx);
             if (info.block_it->elements.empty()) {
                 if (info.type == LIST_D1) {
                     D1_Index.erase(
@@ -179,7 +180,6 @@ void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
         return;
 
     if ((int)to_add.size() <= M) {
-        // Single block, O(L)
         Block b;
         b.upper_bound = 0;
         for (const auto& el : to_add) {
@@ -187,28 +187,25 @@ void BlockList::batch_prepend(const vector<pair<int, double>>& elements) {
         }
         D0.push_front(b);
         auto it = D0.begin();
-        for (auto el_it = it->elements.begin(); el_it != it->elements.end();
-             ++el_it) {
-            locator[el_it->u] = {LIST_D0, it, el_it, el_it->d};
+        for (int i = 0; i < (int)it->elements.size(); ++i) {
+            auto& el = it->elements[i];
+            locator[el.u] = {it, el.d, i, LIST_D0};
         }
         return;
     }
 
-    // Use recursive median partitioning: O(L log(L/M)) instead of O(L log L)
+    // Use recursive median partitioning
     list<Block> new_blocks;
     partition_into_blocks_d0(to_add, 0, (int)to_add.size(), new_blocks);
 
-    // Set up locators while blocks are in new_blocks
-    // (iterators remain valid after splice)
     for (auto block_it = new_blocks.begin(); block_it != new_blocks.end();
          ++block_it) {
-        for (auto el_it = block_it->elements.begin();
-             el_it != block_it->elements.end(); ++el_it) {
-            locator[el_it->u] = {LIST_D0, block_it, el_it, el_it->d};
+        for (int i = 0; i < (int)block_it->elements.size(); ++i) {
+            auto& el = block_it->elements[i];
+            locator[el.u] = {block_it, el.d, i, LIST_D0};
         }
     }
 
-    // Splice all new blocks to front of D0
     D0.splice(D0.begin(), new_blocks);
 }
 
@@ -243,11 +240,9 @@ BlockList::PullResult BlockList::pull() {
 
     int K = (int)candidates.size();
     if (K <= M) {
-        // Pull everything collected
         for (const auto& p : candidates)
             frontier_ids.push_back(p.second);
     } else {
-        // Linear-time selection of the M-th order statistic
         nth_element(candidates.begin(), candidates.begin() + M,
                     candidates.end(),
                     [](const pair<double, int>& a, const pair<double, int>& b) {
@@ -255,13 +250,11 @@ BlockList::PullResult BlockList::pull() {
                     });
         double dM = candidates[M].first;
 
-        // Select elements with value < dM first (ensures max(S') < x = dM)
         for (int i = 0; i < M; ++i) {
             if (candidates[i].first < dM)
                 frontier_ids.push_back(candidates[i].second);
         }
 
-        // If all candidates[0..M-1] tie at dM, return all of them to ensure progress.
         if (frontier_ids.empty()) {
             for (int i = 0; i < M; ++i) {
                 frontier_ids.push_back(candidates[i].second);
@@ -274,7 +267,7 @@ BlockList::PullResult BlockList::pull() {
         auto loc_it = locator.find(u);
         if (loc_it != locator.end()) {
             auto& info = loc_it->second;
-            info.block_it->elements.erase(info.elem_it);
+            erase_element(info.block_it, info.elem_idx);
 
             if (info.block_it->elements.empty()) {
                 if (info.type == LIST_D1) {
@@ -294,22 +287,20 @@ BlockList::PullResult BlockList::pull() {
         next_bound = B_global;
     } else {
         next_bound = B_global;
-        // Check first non-empty block of D0
         for (auto& block : D0) {
             if (!block.elements.empty()) {
                 for (auto& el : block.elements) {
                     next_bound = min(next_bound, el.d);
                 }
-                break; // Only need first non-empty block (blocks are sorted)
+                break;
             }
         }
-        // Check first non-empty block of D1
         for (auto& block : D1) {
             if (!block.elements.empty()) {
                 for (auto& el : block.elements) {
                     next_bound = min(next_bound, el.d);
                 }
-                break; // Only need first non-empty block (blocks are sorted)
+                break;
             }
         }
     }
