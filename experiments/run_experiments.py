@@ -9,6 +9,7 @@ import csv
 import os
 import random
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,18 @@ def write_graph_to_file(filepath, n, edges, source=0):
         f.write(f"{source}\n")
 
 
+def write_graph_binary(filepath, n, edges, source=0):
+    """Write graph in binary format for fast solver I/O.
+
+    Format: [int32 n][int32 m][int32 source] then m × [int32 u][int32 v][float64 w]
+    """
+    m = len(edges)
+    with open(filepath, "wb") as f:
+        f.write(struct.pack("<iii", n, m, source))
+        for u, v, w in edges:
+            f.write(struct.pack("<iid", u, v, w))
+
+
 def extract_timing(output, label="BMSSP"):
     """Extract timing in milliseconds from solver output."""
     match = re.search(rf"{label} Time:\s*([\d.]+)\s*ms", output)
@@ -78,12 +91,16 @@ def extract_timing(output, label="BMSSP"):
     raise ValueError(f"Could not extract timing from output: {output[:200]}")
 
 
-def run_solver(solver_path, input_file, label="BMSSP", timeout=300):
+def run_solver(solver_path, input_file, label="BMSSP", timeout=300, binary=False):
     """Run the solver on an input file. Returns (time_ms, success)."""
     try:
-        with open(input_file, "r") as f:
+        args = [solver_path, "-q"]
+        if binary:
+            args.append("-b")
+        mode = "rb" if binary else "r"
+        with open(input_file, mode) as f:
             result = subprocess.run(
-                [solver_path],
+                args,
                 stdin=f,
                 capture_output=True,
                 text=True,
@@ -133,11 +150,11 @@ def run_node_scaling(solver_path, node_counts, edge_multiplier, trials, output_d
                 print(f"\nn={n:,}, m={m:,}")
                 for trial in range(trials):
                     seed = make_seed(n, m, trial)
-                    graph_file = os.path.join(tmpdir, "graph.in")
+                    graph_file = os.path.join(tmpdir, "graph.bin")
                     edges = generate_connected_graph(n, m, seed=seed)
-                    write_graph_to_file(graph_file, n, edges)
+                    write_graph_binary(graph_file, n, edges)
                     for solver_name, spath, label in solvers:
-                        timing, success = run_solver(spath, graph_file, label)
+                        timing, success = run_solver(spath, graph_file, label, binary=True)
                         if success:
                             writer.writerow([n, m, trial, seed, solver_name, f"{timing:.4f}"])
                             print(f"  Trial {trial+1}/{trials} [{solver_name}]: {timing:.2f} ms")
@@ -175,11 +192,11 @@ def run_edge_density(solver_path, fixed_nodes, edge_multipliers, trials, output_
                 print(f"\nn={n:,}, m={m:,} (multiplier={multiplier})")
                 for trial in range(trials):
                     seed = make_seed(n, m, trial)
-                    graph_file = os.path.join(tmpdir, "graph.in")
+                    graph_file = os.path.join(tmpdir, "graph.bin")
                     edges = generate_connected_graph(n, m, seed=seed)
-                    write_graph_to_file(graph_file, n, edges)
+                    write_graph_binary(graph_file, n, edges)
                     for solver_name, spath, label in solvers:
-                        timing, success = run_solver(spath, graph_file, label)
+                        timing, success = run_solver(spath, graph_file, label, binary=True)
                         if success:
                             writer.writerow([n, m, multiplier, trial, seed, solver_name, f"{timing:.4f}"])
                             print(f"  Trial {trial+1}/{trials} [{solver_name}]: {timing:.2f} ms")
